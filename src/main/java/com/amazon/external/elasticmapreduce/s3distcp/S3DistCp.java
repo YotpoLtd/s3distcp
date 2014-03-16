@@ -9,15 +9,19 @@
 /*     */ import com.amazonaws.services.s3.model.ObjectListing;
 /*     */ import com.amazonaws.services.s3.model.S3ObjectSummary;
 /*     */ import com.google.gson.Gson;
+
 /*     */ import emr.hbase.options.OptionWithArg;
 /*     */ import emr.hbase.options.Options;
 /*     */ import emr.hbase.options.SimpleOption;
+
 /*     */ import java.io.File;
 /*     */ import java.io.IOException;
 /*     */ import java.io.PrintStream;
 /*     */ import java.net.InetAddress;
 /*     */ import java.net.URI;
 /*     */ import java.net.UnknownHostException;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 /*     */ import java.util.ArrayDeque;
 /*     */ import java.util.Map;
 /*     */ import java.util.Queue;
@@ -26,6 +30,7 @@
 /*     */ import java.util.UUID;
 /*     */ import java.util.regex.Pattern;
 /*     */ import java.util.zip.GZIPInputStream;
+
 /*     */ import org.apache.commons.httpclient.HttpClient;
 /*     */ import org.apache.commons.httpclient.HttpConnectionManager;
 /*     */ import org.apache.commons.httpclient.SimpleHttpConnectionManager;
@@ -56,6 +61,7 @@
 /*     */ {
 /*  56 */   private static final Log LOG = LogFactory.getLog(S3DistCp.class);
 /*     */   private static final int MAX_LIST_RETRIES = 10;
+			private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyy/MM/dd");
 /*     */   public static final String EC2_META_AZ_URL = "http://169.254.169.254/latest/meta-data/placement/availability-zone";
 /*     */   public static final String S3_ENDPOINT_PDT = "s3-us-gov-west-1.amazonaws.com";
 /*  63 */   private static String ec2MetaDataAz = null;
@@ -245,6 +251,8 @@
 /*     */ 
 /* 566 */     job.set("s3DistCp.copyfiles.destDir", destPath.toString());
 /* 567 */     job.setBoolean("s3DistCp.copyfiles.reducer.numberFiles", options.getNumberFiles().booleanValue());
+              job.setBoolean("s3DistCp.copyfiles.reducer.flatten", options.getFlatten().booleanValue());
+              job.set("s3DistCp.copyfiles.reducer.destDir", destPath.toString());
 /*     */ 
 /* 570 */     deleteRecursive(job, inputPath);
 /* 571 */     deleteRecursive(job, outputPath);
@@ -271,6 +279,24 @@
 /* 593 */     if (options.getSrcPattern() != null) {
 /* 594 */       fileInfoListing.setSrcPattern(Pattern.compile(options.getSrcPattern()));
 /*     */     }
+
+              if (options.getStartDate() != null) {
+                try {
+					fileInfoListing.setStartDate(DATE_FORMAT.parse(options.getStartDate()));
+				} catch (ParseException e) {
+					LOG.fatal("Error parsing start date arg. ", e);
+					System.exit(5);
+				}
+              }
+
+              if (options.getEndDate() != null) {
+                try {
+					fileInfoListing.setEndDate(DATE_FORMAT.parse(options.getEndDate()));
+				} catch (ParseException e) {
+					LOG.fatal("Error parsing start date arg. ", e);
+					System.exit(5);
+				}
+              }
 /*     */ 
 /* 600 */     if (options.getGroupByPattern() != null) {
 /* 601 */       String groupByPattern = options.getGroupByPattern();
@@ -406,7 +432,10 @@
 /*     */     String tmpDir;
 /*     */     String dest;
 /*  74 */     boolean numberFiles = false;
+              boolean flatten = false;
 /*     */     String srcPattern;
+              String startDate;
+              String endDate;
 /*     */     Long filePerMapper;
 /*     */     String groupByPattern;
 /*     */     Integer targetSize;
@@ -432,6 +461,12 @@
 /*  98 */       OptionWithArg destOption = options.withArg("--dest", "Directory to copy files to");
 /*  99 */       OptionWithArg tmpDirOption = options.withArg("--tmpDir", "Temporary directory location");
 /* 100 */       OptionWithArg srcPatternOption = options.withArg("--srcPattern", "Include only source files matching this pattern");
+                /*
+                    startDate and endDate assume we have a src path of the following format:
+                        .*YYYY/mm/dd/*
+                 */
+/* 100 */       OptionWithArg startDateOption = options.withArg("--startDate", "declare a start date for files to retrieve");
+/* 100 */       OptionWithArg endDateOption = options.withArg("--endDate", "declare a start date for files to retrieve");
 /* 101 */       OptionWithArg filePerMapperOption = options.withArg("--filesPerMapper", "Place up to this number of files in each map task");
 /* 102 */       OptionWithArg groupByPatternOption = options.withArg("--groupBy", "Pattern to group input files by");
 /* 103 */       OptionWithArg targetSizeOption = options.withArg("--targetSize", "Target size for output files");
@@ -442,6 +477,7 @@
 /* 108 */       OptionWithArg multipartUploadPartSizeOption = options.withArg("--multipartUploadChunkSize", "The size in MiB of the multipart upload part size");
 /* 109 */       OptionWithArg startingIndexOption = options.withArg("--startingIndex", "The index to start with for file numbering");
 /* 110 */       SimpleOption numberFilesOption = options.noArg("--numberFiles", "Prepend sequential numbers the file names");
+                SimpleOption flattenOption  = options.noArg("--flatten", "Flatten output");
 /* 111 */       OptionWithArg outputManifest = options.withArg("--outputManifest", "The name of the manifest file");
 /* 112 */       OptionWithArg previousManifest = options.withArg("--previousManifest", "The path to an existing manifest file");
 /* 113 */       SimpleOption copyFromManifest = options.noArg("--copyFromManifest", "Copy from a manifest instead of listing a directory");
@@ -466,9 +502,18 @@
 /* 132 */       if (numberFilesOption.defined()) {
 /* 133 */         setNumberFiles(Boolean.valueOf(numberFilesOption.value));
 /*     */       }
+                if (flattenOption.defined()) {
+                    setFlatten(Boolean.valueOf(flattenOption.value));
+                }
 /* 135 */       if (srcPatternOption.defined()) {
 /* 136 */         setSrcPattern(srcPatternOption.value);
 /*     */       }
+                if (startDateOption.defined()) {
+                    setStartDate(startDateOption.value);
+                }
+                if (endDateOption.defined()) {
+                    setEndDate(endDateOption.value);
+                }
 /* 138 */       if (filePerMapperOption.defined()) {
 /* 139 */         setFilePerMapper(filePerMapperOption.value);
 /*     */       }
@@ -577,11 +622,36 @@
 /*     */     public String getSrcPattern() {
 /* 243 */       return this.srcPattern;
 /*     */     }
+
 /*     */ 
 /*     */     public void setSrcPattern(String srcPattern) {
 /* 247 */       this.srcPattern = srcPattern;
 /*     */     }
-/*     */ 
+
+			  public Boolean getFlatten() {
+			    return Boolean.valueOf(this.flatten);
+			  }
+				
+			  public void setFlatten(Boolean flatten) {
+				this.flatten = flatten.booleanValue();
+			  }
+			  
+			  public String getStartDate() {
+				  return this.startDate;
+			  }
+			  
+			  public String getEndDate() {
+				  return this.endDate;
+			  }
+				
+              public void setStartDate(String startDate) {
+                  this.startDate = startDate;
+              }
+
+              public void setEndDate(String endDate) {
+                  this.endDate = endDate;
+              }
+/*     */
 /*     */     public Long getFilePerMapper() {
 /* 251 */       return this.filePerMapper;
 /*     */     }

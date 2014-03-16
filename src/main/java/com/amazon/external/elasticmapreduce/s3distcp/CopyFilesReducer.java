@@ -30,7 +30,7 @@
 /*     */   implements Reducer<Text, FileInfo, Text, Text>
 /*     */ {
 /*  32 */   private static final Log LOG = LogFactory.getLog(CopyFilesReducer.class);
-/*  33 */   private static final List<String> validCodecs = Lists.newArrayList(new String[] { "snappy", "gz", "lzo", "lzop", "gzip" });
+/*  33 */   private static final List<String> validCodecs = Lists.newArrayList(new String[]{"snappy", "gz", "lzo", "lzop", "gzip"});
 /*     */   private OutputCollector<Text, Text> collector;
 /*     */   private Reporter reporter;
 /*     */   private SimpleExecutor transferQueue;
@@ -41,10 +41,12 @@
 /*     */   private int numTransferRetries;
 /*     */   private int multipartSize;
 /*     */   private String outputCodec;
+/*     */   private String destDir;
 /*     */   private boolean deleteOnSuccess;
 /*     */   private boolean useMultipartUpload;
 /*     */   private boolean numberFiles;
-/*     */   private JobConf conf;
+/*     */   private boolean flatten;
+            private JobConf conf;
 /*     */ 
 /*     */   public void close()
 /*     */     throws IOException
@@ -91,6 +93,8 @@
 /*  98 */     this.targetSize = conf.getLong("s3DistCp.copyfiles.reducer.targetSize", 9223372036854775807L);
 /*  99 */     this.outputCodec = conf.get("s3DistCp.copyfiles.reducer.outputCodec").toLowerCase();
 /* 100 */     this.numberFiles = conf.getBoolean("s3DistCp.copyfiles.reducer.numberFiles", false);
+/* 100 */     this.flatten = conf.getBoolean("s3DistCp.copyfiles.reducer.flatten", false);
+/* 100 */     this.destDir = conf.get("s3DistCp.copyfiles.reducer.destDir");
 /* 101 */     this.transferQueue = new SimpleExecutor(queueSize, numWorkers);
 /* 102 */     this.multipartSize = conf.getInt("s3DistCp.copyFiles.multipartUploadPartSize", 16777216);
 /* 103 */     this.uncommitedFiles = new HashSet();
@@ -113,14 +117,16 @@
 /* 120 */     return validCodecs.contains(this.outputCodec);
 /*     */   }
 /*     */ 
-/*     */   private String makeFinalPath(long fileUid, String finalDir, String groupId, String groupIndex) {
+/*     */   private String makeFinalPath(long fileUid, String finalDir, String groupId, String groupIndex, Boolean flatten) {
 /* 124 */     String[] groupIds = groupId.split("/");
 /* 125 */     groupId = groupIds[(groupIds.length - 1)];
+
+              LOG.info("group id: " + groupId);
 /*     */ 
 /* 127 */     if (this.numberFiles) {
 /* 128 */       groupId = fileUid + groupId;
 /*     */     }
-/*     */ 
+/*     */
 /* 131 */     if (!this.outputCodec.equalsIgnoreCase("keep"))
 /*     */     {
 /*     */       String suffix;
@@ -172,7 +178,7 @@
 /* 175 */           groupIndex = "";
 /*     */         }
 /*     */ 
-/* 178 */         finalPath = new Path(makeFinalPath(fileInfo.fileUID.get(), finalPath.toString(), groupId, groupIndex));
+/* 178 */         finalPath = new Path(makeFinalPath(fileInfo.fileUID.get(), finalPath.toString(), groupId, groupIndex, false));
 /* 179 */         LOG.info("tempPath:" + tempPath + " finalPath:" + finalPath);
 /* 180 */         executeDownloads(this, curFiles, tempPath, finalPath);
 /* 181 */         groupNum++;
@@ -189,7 +195,15 @@
 /* 192 */       if (numFiles == 1) {
 /* 193 */         groupIndex = "";
 /*     */       }
-/* 195 */       Path finalPath = new Path(makeFinalPath(((FileInfo)curFiles.get(0)).fileUID.get(), intermediateFinal.toString(), groupId, groupIndex));
+/* 195 */       String strFinalPath = makeFinalPath(((FileInfo) curFiles.get(0)).fileUID.get(), intermediateFinal.toString(), groupId, groupIndex, false);
+                LOG.info("strFinalPath before manipulation: " + strFinalPath);
+                if (this.flatten) {
+                    String tmp = strFinalPath.replaceFirst(this.destDir + "/","");
+                    tmp = tmp.replaceAll("/","-");
+                    strFinalPath = this.destDir + "/" + tmp;
+                }
+                LOG.info("strFinalPath after manipulation: " + strFinalPath);
+                Path finalPath = new Path(strFinalPath);
 /* 196 */       executeDownloads(this, curFiles, tempPath, finalPath);
 /*     */     }
 /*     */   }

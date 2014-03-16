@@ -1,15 +1,20 @@
 /*     */ package com.amazon.external.elasticmapreduce.s3distcp;
 /*     */ 
 /*     */ import com.google.gson.Gson;
+
 /*     */ import java.io.File;
 /*     */ import java.io.FileOutputStream;
 /*     */ import java.io.IOException;
 /*     */ import java.io.OutputStream;
 /*     */ import java.net.URLDecoder;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 /*     */ import java.util.Map;
 /*     */ import java.util.regex.Matcher;
 /*     */ import java.util.regex.Pattern;
 /*     */ import java.util.zip.GZIPOutputStream;
+
 /*     */ import org.apache.commons.logging.Log;
 /*     */ import org.apache.commons.logging.LogFactory;
 /*     */ import org.apache.hadoop.conf.Configuration;
@@ -23,6 +28,8 @@
 /*     */ public class FileInfoListing
 /*     */ {
 /*  26 */   private static final Log LOG = LogFactory.getLog(FileInfoListing.class);
+			private static final Pattern DATE_PATTERN = Pattern.compile(".*/([\\d]{4}/[\\d]{2}/[\\d]{2})/.*");
+			private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("yyyy/MM/dd");
 /*     */   private FileSystem fs;
 /*     */   private SequenceFile.Writer writer;
 /*  30 */   private Long fileIndex = Long.valueOf(0L);
@@ -34,6 +41,8 @@
 /*     */   private Path outputDir;
 /*     */   private Path defaultSrcDir;
 /*     */   private Pattern srcPattern;
+            private Date startDate;
+            private Date endDate;
 /*     */   private Pattern groupBy;
 /*     */   private OutputStream manifestStream;
 /*     */   private Map<String, ManifestEntry> previousManifest;
@@ -84,6 +93,26 @@
 /*  86 */         return;
 /*     */       }
 /*     */     }
+
+              if (this.startDate != null || this.endDate != null) {
+            	  
+            	  Matcher dateMatcher = FileInfoListing.DATE_PATTERN.matcher(filePathString);
+            	  if (dateMatcher.find()) {
+            		  Date fileDate = null;
+            		  try {
+						fileDate = FileInfoListing.DATE_FORMAT.parse(dateMatcher.group(1));
+					} catch (ParseException e) {
+						LOG.warn("Failed to generate date object from file path: " + filePathString, e);
+						return;
+					}
+            		if ((this.startDate != null && fileDate.before(this.startDate)) || (this.endDate != null && fileDate.after(this.endDate))) {
+            			//file path doesn't match dates criteria
+            			LOG.info("skipping file due to date incompatability: " + filePathString);
+            			return;
+            		}
+            	  }
+              }
+
 /*     */ 
 /*  90 */     if (this.groupBy != null) {
 /*  91 */       Matcher matcher = this.groupBy.matcher(filePathString);
@@ -181,6 +210,22 @@
 /*     */   public void setSrcPattern(Pattern srcPattern) {
 /* 185 */     this.srcPattern = srcPattern;
 /*     */   }
+
+            public Date getStartDate() {
+                return this.startDate;
+            }
+
+            public void setStartDate(Date startDate) {
+                this.startDate = startDate;
+            }
+
+            public Date getEndDate() {
+                return this.endDate;
+            }
+
+            public void setEndDate(Date endDate) {
+                this.endDate = endDate;
+            }
 /*     */ 
 /*     */   public Pattern getGroupBy() {
 /* 189 */     return this.groupBy;
