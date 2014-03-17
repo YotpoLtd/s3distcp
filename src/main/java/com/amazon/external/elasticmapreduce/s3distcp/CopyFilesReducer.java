@@ -120,8 +120,6 @@
 /*     */   private String makeFinalPath(long fileUid, String finalDir, String groupId, String groupIndex, Boolean flatten) {
 /* 124 */     String[] groupIds = groupId.split("/");
 /* 125 */     groupId = groupIds[(groupIds.length - 1)];
-
-              LOG.info("group id: " + groupId);
 /*     */ 
 /* 127 */     if (this.numberFiles) {
 /* 128 */       groupId = fileUid + groupId;
@@ -196,13 +194,11 @@
 /* 193 */         groupIndex = "";
 /*     */       }
 /* 195 */       String strFinalPath = makeFinalPath(((FileInfo) curFiles.get(0)).fileUID.get(), intermediateFinal.toString(), groupId, groupIndex, false);
-                LOG.info("strFinalPath before manipulation: " + strFinalPath);
                 if (this.flatten) {
                     String tmp = strFinalPath.replaceFirst(this.destDir + "/","");
                     tmp = tmp.replaceAll("/","-");
                     strFinalPath = this.destDir + "/" + tmp;
                 }
-                LOG.info("strFinalPath after manipulation: " + strFinalPath);
                 Path finalPath = new Path(strFinalPath);
 /* 196 */       executeDownloads(this, curFiles, tempPath, finalPath);
 /*     */     }
